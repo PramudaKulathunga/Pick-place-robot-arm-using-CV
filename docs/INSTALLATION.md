@@ -1,7 +1,6 @@
 
 ### 3. `docs/INSTALLATION.md`
 
-```markdown
 # Installation Guide
 
 ## System Requirements
@@ -20,4 +19,4 @@
 ### 1. Clone Repository
 ```bash
 git clone https://github.com/PramudaKulathunga/Pick-place-robot-arm-using-CV
-cd robot-arm-color-sorting
+cd Pick-place-robot-arm-using-CV
