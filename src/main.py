@@ -6,6 +6,7 @@ from robot_arm_simulator import RobotArmSimulator
 from object_tracker import ObjectSelector, PositionStabilizer
 
 class RobotArmSortingSystem:
+    
     def __init__(self, dataset_path):
         # Initialize components
         self.color_detector = ColorDetector(dataset_path)
@@ -23,6 +24,10 @@ class RobotArmSortingSystem:
         # Performance tracking
         self.frame_count = 0
         self.start_time = time.time()
+        
+        # Scrollable history state
+        self.history_scroll_offset = 0
+        self.max_history_items = 10
         
     def setup_camera(self):
         """Initialize camera"""
@@ -117,39 +122,73 @@ class RobotArmSortingSystem:
         return frame
     
     def create_history_panel(self, width, height):
-        """Create history panel below camera feed"""
         history_panel = np.zeros((height, width, 3), dtype=np.uint8)
         
-        # Add title
-        cv2.putText(history_panel, "PICK HISTORY", (10, 25), 
+        # Add title with scroll indicators
+        title = "PICK HISTORY"
+        cv2.putText(history_panel, title, (10, 25), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         
-        # Display recent history
-        recent_history = self.robot_sim.pick_history[-4:]  # Last 4 picks
+        # Add scroll indicators if there are more items
+        total_history = len(self.robot_sim.pick_history)
+        if total_history > self.max_history_items:
+            # Show scroll up indicator if not at top
+            if self.history_scroll_offset > 0:
+                cv2.putText(history_panel, "up", (width - 30, 20), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
+            
+            # Show scroll down indicator if not at bottom
+            if self.history_scroll_offset < total_history - self.max_history_items:
+                cv2.putText(history_panel, "down", (width - 30, height - 10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
+            
+            # Show scroll position
+            scroll_info = f"{self.history_scroll_offset+1}-{min(self.history_scroll_offset+self.max_history_items, total_history)}/{total_history}"
+            text_size = cv2.getTextSize(scroll_info, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+            cv2.putText(history_panel, scroll_info, (width - text_size[0] - 10, 25), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
         
-        if not recent_history:
+        # Display scrollable history
+        if not self.robot_sim.pick_history:
             cv2.putText(history_panel, "No completed missions", (20, 60), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 100, 100), 1)
         else:
-            # Display in columns
+            # Get the slice of history to display based on scroll offset
+            start_idx = max(0, len(self.robot_sim.pick_history) - self.max_history_items - self.history_scroll_offset)
+            end_idx = len(self.robot_sim.pick_history) - self.history_scroll_offset
+            display_history = self.robot_sim.pick_history[start_idx:end_idx]
+            
+            # Reverse to show newest first
+            display_history = list(reversed(display_history))
+            
+            # Display in two columns
             col_width = width // 2
-            for i, mission in enumerate(reversed(recent_history)):
-                if i < 2:  # First column
+            max_items_per_col = (height - 40) // 25  # Calculate based on available space
+            
+            for i, mission in enumerate(display_history):
+                if i >= self.max_history_items:
+                    break
+                    
+                if i < max_items_per_col:  # First column
                     x_pos = 20
-                    y_pos = 60 + (i * 30)
+                    y_pos = 60 + (i * 25)
                 else:  # Second column
                     x_pos = col_width + 10
-                    y_pos = 60 + ((i-2) * 30)
+                    y_pos = 60 + ((i - max_items_per_col) * 25)
                 
                 time_str = time.strftime("%H:%M:%S", time.localtime(mission['timestamp']))
                 color_bgr = (0, 0, 255) if mission['color'] == 'Red' else (
                     (0, 255, 0) if mission['color'] == 'Green' else (255, 0, 0)
                 )
                 drop_x, drop_y, _ = mission['drop_location']
+                
+                # Truncate text if too long
                 history_text = f"{time_str}: {mission['color']} -> ({drop_x},{drop_y})"
+                if len(history_text) > 25:
+                    history_text = history_text[:22] + "..."
                 
                 cv2.putText(history_panel, history_text, (x_pos, y_pos), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_bgr, 1)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_bgr, 1)
         
         return history_panel
     
@@ -251,14 +290,18 @@ class RobotArmSortingSystem:
             "1-6: Select object",
             "SPACE: Pick selected",
             "F: Pick ALL objects",
-            "R: Pick RED objects"
+            "R: Pick RED objects",
+            "W: History scroll up",
+            "S: History scroll down"
         ]
         
         controls_right = [
             "G: Pick GREEN objects",
             "B: Pick BLUE objects",
             "C: Clear selection",
-            "+/-: Tolerance"
+            "+/-: Tolerance",
+            "H: History Home",
+            "Q: Quit"
         ]
         
         # Left column
@@ -349,7 +392,6 @@ class RobotArmSortingSystem:
         return y_offset + 10
     
     def add_performance_metrics(self, panel, panel_height):
-        """Add performance metrics at bottom"""
         metrics = self.robot_sim.get_performance_metrics()
         
         metrics_text = f"Picks: {metrics['total_picks']} | Success: {metrics['success_rate']:.1f}%"
@@ -363,7 +405,6 @@ class RobotArmSortingSystem:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
     
     def handle_keyboard_input(self, key, objects):
-        """Handle keyboard input"""
         if key == ord('q'):
             return False
         elif key == ord('c'):
@@ -396,6 +437,20 @@ class RobotArmSortingSystem:
             if obj_index < len(objects):
                 self.object_selector.select_object(objects[obj_index])
                 print(f"Selected {objects[obj_index]['color']} object")
+        
+        # History scrolling controls
+        elif key == ord('w') or key == ord('W'):
+            self.history_scroll_offset = min(
+                self.history_scroll_offset + 1,
+                max(0, len(self.robot_sim.pick_history) - self.max_history_items)
+            )
+            print(f"History scrolled up to position {self.history_scroll_offset}")
+        elif key == ord('s') or key == ord('S'): 
+            self.history_scroll_offset = max(0, self.history_scroll_offset - 1)
+            print(f"History scrolled down to position {self.history_scroll_offset}")
+        elif key == ord('h') or key == ord('H'):
+            self.history_scroll_offset = 0
+            print("History reset to newest entries")
         
         return True
     
