@@ -1,5 +1,5 @@
 
-### 3. `docs/INSTALLATION.md`
+### `docs/INSTALLATION.md`
 
 # Installation Guide
 
