@@ -1,7 +1,6 @@
 
-### 2. `docs/PROJECT_REPORT.md`
+### `docs/PROJECT_REPORT.md`
 
-```markdown
 # Robot Arm Color Sorting System - Project Report
 
 ## 1. Problem Definition
